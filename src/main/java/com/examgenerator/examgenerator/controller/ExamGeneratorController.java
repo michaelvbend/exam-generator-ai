@@ -1,23 +1,23 @@
 package com.examgenerator.examgenerator.controller;
 
 import com.examgenerator.examgenerator.domain.Exam;
-import com.examgenerator.examgenerator.service.ExamGeneratorService;
+import com.examgenerator.examgenerator.service.impl.ExamGeneratorService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/exams")
 @RequiredArgsConstructor
+@Slf4j
 public class ExamGeneratorController {
 
     private final ExamGeneratorService examGeneratorService;
 
-    @GetMapping("/generate")
-    public Exam generateExam(@RequestParam(value = "topic") String topic) {
-       return examGeneratorService.generateExam(topic);
+    @PostMapping("/generate")
+    public Exam generateExam(@RequestParam(value = "file") MultipartFile file, @RequestParam(value = "topic") String topic) {
+        return examGeneratorService.generateExam(file, topic);
     }
 
 
