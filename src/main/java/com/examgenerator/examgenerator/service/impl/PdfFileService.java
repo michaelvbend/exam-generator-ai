@@ -15,16 +15,15 @@ import org.springframework.ai.transformer.splitter.TextSplitter;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -53,39 +52,40 @@ public class PdfFileService implements FileService {
     private final VectorStore vectorStore;
     private final JdbcClient jdbcClient;
 
-    @Value("classpath:/docs/dummy-pdf.pdf")
-    private Resource file;
-    public void loadDocumentIntoVectorStore(Document document) {
-        TokenTextSplitter textSplitter = new TokenTextSplitter();
+    public List<String> loadDocumentIntoVectorStore(MultipartFile file)  {
 
-        var config = PdfDocumentReaderConfig.builder()
-                .withPageExtractedTextFormatter(new ExtractedTextFormatter.Builder().withNumberOfBottomTextLinesToDelete(0)
-                        .withNumberOfTopPagesToSkipBeforeDelete(0)
-                        .build())
-                .build();
+            try (PDDocument document = Loader.loadPDF(file.getBytes())) {
 
-        var pdfReader = new PagePdfDocumentReader(file, config);
+                // Extract text from the PDF
+                PDFTextStripper pdfStripper = new PDFTextStripper();
+                String text = pdfStripper.getText(document);
 
-        List<Document> splitDocuments = textSplitter.split(List.of(document));
-        for (Document doc: splitDocuments) {
-            System.out.println("TEXT:::" + doc.getContent());
+                String[] words = text.split("\\s+"); // Split the string into words
+                int totalWords = words.length;
+                int numElements = 10;
+                int interval = totalWords / numElements;
+                System.out.println(words);
+                // Collect 10 evenly spaced words
+                List<String> result = new ArrayList<>();
+                for (int i = 0; i < numElements; i++) {
+                    int start = i * interval;
+                    int end = Math.min(start + interval, totalWords);
+                    String chunk = String.join(" ", Arrays.copyOfRange(words, start, end)); // Create a chunk
+                    result.add(chunk);
+                }
+
+                System.out.println(result);
+                return result;
+            } catch (IOException e) {
+                return null;
+            }
+
         }
-        System.out.println(splitDocuments.size());
-        this.vectorStore.accept(splitDocuments);
-    }
 
     @Override
-    public Document sanitizeFile(MultipartFile file) {
+    public List<String> sanitizeFile(MultipartFile file) {
         validateFile(file);
-        try (PDDocument pdDocument = Loader.loadPDF(file.getBytes())) {
-            PDFTextStripper pdfTextStripper = new PDFTextStripper();
-            String pdfTextStripped = removeStopwordsFromString(pdfTextStripper.getText(pdDocument));
-            Document document = Document.builder().withContent(pdfTextStripped).build();
-            loadDocumentIntoVectorStore(document);
-            return document;
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to sanitize file", e);
-        }
+       return  loadDocumentIntoVectorStore(file);
     }
 
     private void validateFile(MultipartFile file) {
@@ -98,8 +98,6 @@ public class PdfFileService implements FileService {
     }
 
     private String removeStopwordsFromString(String input) {
-        return Arrays.stream(input.toLowerCase().replaceAll("[^a-zA-Z ]", "").split("\\s+"))
-                .filter(word -> !STOP_WORDS.contains(word))
-                .collect(Collectors.joining(" "));
+        return String.join(" ", input.toLowerCase().split("\\s+"));
     }
 }
