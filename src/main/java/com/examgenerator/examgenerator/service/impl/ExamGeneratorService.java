@@ -2,105 +2,90 @@ package com.examgenerator.examgenerator.service.impl;
 
 import com.examgenerator.examgenerator.domain.Exam;
 import com.examgenerator.examgenerator.domain.Question;
+import com.examgenerator.examgenerator.exception.QuestionGenerationException;
+import com.examgenerator.examgenerator.model.request.ExamRequest;
 import com.examgenerator.examgenerator.model.response.ExamResponse;
-import com.examgenerator.examgenerator.service.FileService;
-import com.fasterxml.jackson.core.io.JsonEOFException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.ai.converter.BeanOutputConverter;
-import org.springframework.ai.document.Document;
-import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
+/**
+ * Service responsible for generating exams with AI-powered questions
+ * based on provided topics and context.
+ */
 @Service
 @Slf4j
 public class ExamGeneratorService {
-    private static final int MAX_AMOUNT_OF_QUESTIONS = 3;
+
+    private static final int MAX_AMOUNT_OF_QUESTIONS = 5;
+
     private final ChatClient chatClient;
-    private final VectorStore vectorStore;
-    private final DocumentLoadingService documentLoadingService;
-    private final FileService fileService;
-    private final BeanOutputConverter<Question> outputConverter = new BeanOutputConverter<>(Question.class);
+    private final BeanOutputConverter<Question> outputConverter;
 
-    @Value("classpath:/prompts/single-question.st")
-    private Resource singleQuestionPrompt;
+    @Value("classpath:/prompts/generate-single-question.st")
+    private Resource questionPromptTemplate;
 
-    public ExamGeneratorService(ChatClient.Builder builder, VectorStore vectorStore, FileService fileService, DocumentLoadingService documentLoadingService) {
+    public ExamGeneratorService(ChatClient.Builder builder) {
         this.chatClient = builder.build();
-        this.vectorStore = vectorStore;
-        this.fileService = fileService;
-        this.documentLoadingService = documentLoadingService;
-
+        this.outputConverter = new BeanOutputConverter<>(Question.class);
+        log.info("ExamGeneratorService initialized");
     }
 
-    public ExamResponse generateExam(MultipartFile file, String emphasis) {
-        List<String> textList = fileService.sanitizeFile(file);
+    public ExamResponse generateExam(ExamRequest examRequest) {
+        log.info("Generating exam for topic: {}", examRequest.topic());
         String format = outputConverter.getFormat();
-        PromptTemplate promptTemplate = new PromptTemplate(singleQuestionPrompt);
+        PromptTemplate promptTemplate = new PromptTemplate(questionPromptTemplate);
 
-        List<Question> listOfQuestions = new ArrayList<>();
-        for(String str: textList) {
-            try {
-                Map<String, Object> promptParams = new HashMap<>();
-                promptParams.put("format", format);
-                promptParams.put("context", str);
-                listOfQuestions.add(generateQuestion(promptTemplate.create(promptParams)));
+        List<Question> questions = new ArrayList<>();
 
-            } catch (Exception exception) {
-                log.warn("Could not generate question", exception);
+        Map<String, Object> promptParams = new HashMap<>();
+        promptParams.put("format", format);
+        promptParams.put("context", examRequest.prompt());
+        promptParams.put("topic", examRequest.topic());
+        int generatedQuestions = 0;
+        while (generatedQuestions < MAX_AMOUNT_OF_QUESTIONS) {
+            log.debug("Generating question {} of {}", generatedQuestions+1, MAX_AMOUNT_OF_QUESTIONS);
+            Question question = generateQuestion(promptTemplate.create(promptParams));
+            if (isValidQuestion(question)) {
+                questions.add(question);
+                generatedQuestions++;
             }
-
         }
-        return ExamResponse.builder().exam(Exam.builder().questionList(listOfQuestions).build()).build();
-    }
 
-//    private List<Prompt> generatePrompts(Document document) {
-//
-//    }
-
-    private List<Prompt> generatePrompt(String emphasis) {
-        String format = outputConverter.getFormat();
-        List<Prompt> promptList = new ArrayList<>();
-        PromptTemplate promptTemplate = new PromptTemplate(singleQuestionPrompt);
-        List<String> contextList = this.vectorStore.similaritySearch(emphasis)
-                .stream()
-                .map(Document::getContent)
-                .toList();
-
-
-
-        for (String context: contextList) {
-            Map<String, Object> promptParams = new HashMap<>();
-            promptParams.put("format", format);
-            promptParams.put("context", context);
-            promptList.add(promptTemplate.create(promptParams));
-        }
-        return promptList;
+        Exam exam = Exam.builder().questionList(questions).build();
+        log.info("Successfully generated exam with {} questions", questions.size());
+        return ExamResponse.builder().exam(exam).build();
     }
 
     private Question generateQuestion(Prompt prompt) {
         try {
-            log.info("Generating question for prompt: {}", prompt);
             String response = chatClient.prompt(prompt).call().content();
             if (response == null) {
-                throw new RuntimeException("Could not generate question");
+                log.error("AI returned null response");
+                throw new QuestionGenerationException("AI response is null");
             }
             return outputConverter.convert(response);
         } catch (Exception e) {
-            throw new RuntimeException("Could not generate question");
+            log.error("Failed to generate question", e);
+            throw new QuestionGenerationException("Could not generate question: " + e.getMessage(), e);
         }
     }
 
+    private boolean isValidQuestion(Question question) {
+        return question != null &&
+                !question.question().isBlank() &&
+                !question.answer().isBlank() &&
+                question.options() != null &&
+                question.options().size() == 3;
+    }
 }

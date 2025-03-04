@@ -5,19 +5,4 @@ spring:
     ollama:
       chat:
         options:
-          model: llama3.2
-  datasource:
-    url: jdbc:postgresql://localhost:5432/mydatabase
-    username: myuser
-    password: mypassword
-    initialization-mode: always # Ensures schema.sql is executed on startup
-    schema:
-      - classpath:schema.sql # Ensure the schema file is correctly located
-  vectorstore:
-    pgvector:
-      index-type: HNSW
-      distance-type: COSINE_DISTANCE
-      dimension: 1536
-  docker:
-    compose:
-      lifecycle-management: start_only
+          model: mixtral
