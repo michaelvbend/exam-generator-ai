@@ -31,13 +31,12 @@ public class ExamGeneratorService {
 
     private final ChatClient chatClient;
     private final BeanOutputConverter<Question> outputConverter;
+    private final Resource questionPromptTemplate;
 
-    @Value("classpath:/prompts/generate-single-question.st")
-    private Resource questionPromptTemplate;
-
-    public ExamGeneratorService(ChatClient.Builder builder) {
+    public ExamGeneratorService(ChatClient.Builder builder, @Value("classpath:/prompts/generate-single-question.st") Resource questionPromptTemplate) {
         this.chatClient = builder.build();
         this.outputConverter = new BeanOutputConverter<>(Question.class);
+        this.questionPromptTemplate = questionPromptTemplate;
         log.info("ExamGeneratorService initialized");
     }
 
